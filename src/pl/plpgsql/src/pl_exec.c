@@ -283,7 +283,7 @@ static void plpgsql_param_eval_non_var(ExprState *state, ExprEvalStep *op,
 						   ExprContext *econtext);
 static void exec_move_row(PLpgSQL_execstate *estate,
 			  PLpgSQL_variable *target,
-			  HeapTuple tup, TupleDesc tupdesc);
+			  TupleTableSlot *slot, TupleDesc tupdesc);
 static HeapTuple make_tuple_from_row(PLpgSQL_execstate *estate,
 					PLpgSQL_row *row,
 					TupleDesc tupdesc);
@@ -683,23 +683,23 @@ plpgsql_exec_trigger(PLpgSQL_function *func,
 		/*
 		 * Per-statement triggers don't use OLD/NEW variables
 		 */
-		rec_new->tup = NULL;
-		rec_old->tup = NULL;
+		rec_new->slot = NULL;
+		rec_old->slot = NULL;
 	}
 	else if (TRIGGER_FIRED_BY_INSERT(trigdata->tg_event))
 	{
-		rec_new->tup = trigdata->tg_trigtuple;
-		rec_old->tup = NULL;
+		rec_new->slot = trigdata->tg_trigslot;
+		rec_old->slot = NULL;
 	}
 	else if (TRIGGER_FIRED_BY_UPDATE(trigdata->tg_event))
 	{
-		rec_new->tup = trigdata->tg_newtuple;
-		rec_old->tup = trigdata->tg_trigtuple;
+		rec_new->slot = trigdata->tg_newslot;
+		rec_old->slot = trigdata->tg_trigslot;
 	}
 	else if (TRIGGER_FIRED_BY_DELETE(trigdata->tg_event))
 	{
-		rec_new->tup = NULL;
-		rec_old->tup = trigdata->tg_trigtuple;
+		rec_new->slot = NULL;
+		rec_old->slot = trigdata->tg_trigslot;
 	}
 	else
 		elog(ERROR, "unrecognized trigger action: not INSERT, DELETE, or UPDATE");
@@ -1069,7 +1069,7 @@ copy_plpgsql_datum(PLpgSQL_datum *datum)
 
 				memcpy(new, datum, sizeof(PLpgSQL_rec));
 				/* should be preset to null/non-freeable */
-				Assert(new->tup == NULL);
+				Assert(new->slot == NULL);
 				Assert(new->tupdesc == NULL);
 				Assert(!new->freetup);
 				Assert(!new->freetupdesc);
@@ -1258,7 +1258,7 @@ exec_stmt_block(PLpgSQL_execstate *estate, PLpgSQL_stmt_block *block)
 
 					if (rec->freetup)
 					{
-						heap_freetuple(rec->tup);
+						ExecDropSingleTupleTableSlot(rec->slot);
 						rec->freetup = false;
 					}
 					if (rec->freetupdesc)
@@ -1266,7 +1266,7 @@ exec_stmt_block(PLpgSQL_execstate *estate, PLpgSQL_stmt_block *block)
 						FreeTupleDesc(rec->tupdesc);
 						rec->freetupdesc = false;
 					}
-					rec->tup = NULL;
+					rec->slot = NULL;
 					rec->tupdesc = NULL;
 				}
 				break;
@@ -2708,11 +2708,11 @@ exec_stmt_return(PLpgSQL_execstate *estate, PLpgSQL_stmt_return *stmt)
 					PLpgSQL_rec *rec = (PLpgSQL_rec *) retvar;
 					int32		rettypmod;
 
-					if (HeapTupleIsValid(rec->tup))
+					if (HeapTupleIsValid(rec->slot))
 					{
 						if (estate->retistuple)
 						{
-							estate->retval = PointerGetDatum(rec->tup);
+							estate->retval = PointerGetDatum(rec->slot->tts_tuple);
 							estate->rettupdesc = rec->tupdesc;
 							estate->retisnull = false;
 						}
@@ -2886,7 +2886,7 @@ exec_stmt_return_next(PLpgSQL_execstate *estate,
 					PLpgSQL_rec *rec = (PLpgSQL_rec *) retvar;
 					TupleConversionMap *tupmap;
 
-					if (!HeapTupleIsValid(rec->tup))
+					if (!HeapTupleIsValid(rec->slot))
 						ereport(ERROR,
 								(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
 								 errmsg("record \"%s\" is not assigned yet",
@@ -2899,7 +2899,7 @@ exec_stmt_return_next(PLpgSQL_execstate *estate,
 					tupmap = convert_tuples_by_position(rec->tupdesc,
 														tupdesc,
 														gettext_noop("wrong record type supplied in RETURN NEXT"));
-					tuple = rec->tup;
+					tuple = rec->slot->tts_tuple;
 					if (tupmap)
 						tuple = do_convert_tuple(tuple, tupmap);
 					tuplestore_puttuple(estate->tuple_store, tuple);
@@ -3074,10 +3074,11 @@ exec_stmt_return_query(PLpgSQL_execstate *estate,
 
 		for (i = 0; i < SPI_processed; i++)
 		{
-			HeapTuple	tuple = SPI_tuptable->vals[i];
+			TupleTableSlot *slot = SPI_tuptable->vals[i];
+			HeapTuple	tuple;
 
 			if (tupmap)
-				tuple = do_convert_tuple(tuple, tupmap);
+				tuple = do_convert_tuple(slot->tts_tuple, tupmap);
 			tuplestore_puttuple(estate->tuple_store, tuple);
 			if (tupmap)
 				heap_freetuple(tuple);
@@ -4549,7 +4550,6 @@ exec_assign_value(PLpgSQL_execstate *estate,
 				PLpgSQL_recfield *recfield = (PLpgSQL_recfield *) target;
 				PLpgSQL_rec *rec;
 				int			fno;
-				HeapTuple	newtup;
 				int			colnums[1];
 				Datum		values[1];
 				bool		nulls[1];
@@ -4563,7 +4563,7 @@ exec_assign_value(PLpgSQL_execstate *estate,
 				 * that because records don't have any predefined field
 				 * structure.
 				 */
-				if (!HeapTupleIsValid(rec->tup))
+				if (!HeapTupleIsValid(rec->slot))
 					ereport(ERROR,
 							(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
 							 errmsg("record \"%s\" is not assigned yet",
@@ -4597,15 +4597,9 @@ exec_assign_value(PLpgSQL_execstate *estate,
 											atttypmod);
 				nulls[0] = isNull;
 
-				newtup = heap_modify_tuple_by_cols(rec->tup, rec->tupdesc,
+				rec->slot = heap_modify_slot_by_cols(rec->slot,
 												   1, colnums, values, nulls);
-
-				if (rec->freetup)
-					heap_freetuple(rec->tup);
-
-				rec->tup = newtup;
-				rec->freetup = true;
-
+				rec->freetup = false;
 				break;
 			}
 
@@ -4871,7 +4865,7 @@ exec_eval_datum(PLpgSQL_execstate *estate,
 			{
 				PLpgSQL_rec *rec = (PLpgSQL_rec *) datum;
 
-				if (!HeapTupleIsValid(rec->tup))
+				if (!HeapTupleIsValid(rec->slot))
 					ereport(ERROR,
 							(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
 							 errmsg("record \"%s\" is not assigned yet",
@@ -4884,7 +4878,7 @@ exec_eval_datum(PLpgSQL_execstate *estate,
 				oldcontext = MemoryContextSwitchTo(get_eval_mcontext(estate));
 				*typeid = rec->tupdesc->tdtypeid;
 				*typetypmod = rec->tupdesc->tdtypmod;
-				*value = heap_copy_tuple_as_datum(rec->tup, rec->tupdesc);
+				*value = heap_copy_tuple_as_datum(rec->slot->tts_tuple, rec->tupdesc);
 				*isnull = false;
 				MemoryContextSwitchTo(oldcontext);
 				break;
@@ -4897,7 +4891,7 @@ exec_eval_datum(PLpgSQL_execstate *estate,
 				int			fno;
 
 				rec = (PLpgSQL_rec *) (estate->datums[recfield->recparentno]);
-				if (!HeapTupleIsValid(rec->tup))
+				if (!HeapTupleIsValid(rec->slot))
 					ereport(ERROR,
 							(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
 							 errmsg("record \"%s\" is not assigned yet",
@@ -4918,7 +4912,7 @@ exec_eval_datum(PLpgSQL_execstate *estate,
 				}
 				else
 					*typetypmod = -1;
-				*value = SPI_getbinval(rec->tup, rec->tupdesc, fno, isnull);
+				*value = SPI_getbinval(rec->slot, fno, isnull);
 				break;
 			}
 
@@ -5247,8 +5241,7 @@ exec_eval_expr(PLpgSQL_execstate *estate,
 	/*
 	 * Return the single result Datum.
 	 */
-	return SPI_getbinval(estate->eval_tuptable->vals[0],
-						 estate->eval_tuptable->tupdesc, 1, isNull);
+	return SPI_getbinval(estate->eval_tuptable->vals[0], 1, isNull);
 }
 
 
@@ -5989,7 +5982,7 @@ plpgsql_param_eval_non_var(ExprState *state, ExprEvalStep *op,
 static void
 exec_move_row(PLpgSQL_execstate *estate,
 			  PLpgSQL_variable *target,
-			  HeapTuple tup, TupleDesc tupdesc)
+			  TupleTableSlot *slot, TupleDesc tupdesc)
 {
 	/*
 	 * Record is simple - just copy the tuple and its descriptor into the
@@ -5997,6 +5990,7 @@ exec_move_row(PLpgSQL_execstate *estate,
 	 */
 	if (target->dtype == PLPGSQL_DTYPE_REC)
 	{
+		//hari fixme
 		PLpgSQL_rec *rec = (PLpgSQL_rec *) target;
 
 		/*
@@ -6022,7 +6016,7 @@ exec_move_row(PLpgSQL_execstate *estate,
 		/* Free the old value ... */
 		if (rec->freetup)
 		{
-			heap_freetuple(rec->tup);
+			ExecDropSingleTupleTableSlot(rec->slot);
 			rec->freetup = false;
 		}
 		if (rec->freetupdesc)
@@ -6032,13 +6026,13 @@ exec_move_row(PLpgSQL_execstate *estate,
 		}
 
 		/* ... and install the new */
-		if (HeapTupleIsValid(tup))
+		if (HeapTupleIsValid(slot))
 		{
-			rec->tup = tup;
+			ExecCopySlot(rec->slot, slot);
 			rec->freetup = true;
 		}
 		else
-			rec->tup = NULL;
+			rec->slot = NULL;
 
 		if (tupdesc)
 		{
@@ -6075,8 +6069,8 @@ exec_move_row(PLpgSQL_execstate *estate,
 		int			fnum;
 		int			anum;
 
-		if (HeapTupleIsValid(tup))
-			t_natts = HeapTupleHeaderGetNatts(tup->t_data);
+		if (HeapTupleIsValid(slot))
+			t_natts = HeapTupleHeaderGetNatts(slot->tts_tuple->t_data);
 		else
 			t_natts = 0;
 
@@ -6101,7 +6095,7 @@ exec_move_row(PLpgSQL_execstate *estate,
 			if (anum < td_natts)
 			{
 				if (anum < t_natts)
-					value = SPI_getbinval(tup, tupdesc, anum + 1, &isnull);
+					value = SPI_getbinval(slot, anum + 1, &isnull);
 				else
 				{
 					value = (Datum) 0;
@@ -6244,6 +6238,7 @@ exec_move_row_from_datum(PLpgSQL_execstate *estate,
 	int32		tupTypmod;
 	TupleDesc	tupdesc;
 	HeapTupleData tmptup;
+	TupleTableSlot *slot;
 
 	/* Extract rowtype info and find a tupdesc */
 	tupType = HeapTupleHeaderGetTypeId(td);
@@ -6256,8 +6251,11 @@ exec_move_row_from_datum(PLpgSQL_execstate *estate,
 	tmptup.t_tableOid = InvalidOid;
 	tmptup.t_data = td;
 
+	slot = MakeSingleTupleTableSlot(tupdesc);
+	slot->tts_tuple = &tmptup;
+
 	/* Do the move */
-	exec_move_row(estate, target, &tmptup, tupdesc);
+	exec_move_row(estate, target, slot, tupdesc);
 
 	/* Release tupdesc usage count */
 	ReleaseTupleDesc(tupdesc);

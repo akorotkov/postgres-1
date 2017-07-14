@@ -2331,7 +2331,6 @@ query_to_oid_list(const char *query)
 		bool		isnull;
 
 		oid = SPI_getbinval(SPI_tuptable->vals[i],
-							SPI_tuptable->tupdesc,
 							1,
 							&isnull);
 		if (!isnull)
@@ -3641,7 +3640,6 @@ SPI_sql_row_to_xmlelement(uint64 rownum, StringInfo result, char *tablename,
 		colname = map_sql_identifier_to_xml_name(SPI_fname(SPI_tuptable->tupdesc, i),
 												 true, false);
 		colval = SPI_getbinval(SPI_tuptable->vals[rownum],
-							   SPI_tuptable->tupdesc,
 							   i,
 							   &isnull);
 		if (isnull)

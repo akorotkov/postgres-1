@@ -25,7 +25,7 @@ typedef struct SPITupleTable
 	uint64		alloced;		/* # of alloced vals */
 	uint64		free;			/* # of free vals */
 	TupleDesc	tupdesc;		/* tuple descriptor */
-	HeapTuple  *vals;			/* tuples */
+	TupleTableSlot **vals;			/* tuples */
 	slist_node	next;			/* link for internal bookkeeping */
 	SubTransactionId subid;		/* subxact in which tuptable was created */
 } SPITupleTable;
@@ -121,10 +121,12 @@ extern HeapTuple SPI_copytuple(HeapTuple tuple);
 extern HeapTupleHeader SPI_returntuple(HeapTuple tuple, TupleDesc tupdesc);
 extern HeapTuple SPI_modifytuple(Relation rel, HeapTuple tuple, int natts,
 				int *attnum, Datum *Values, const char *Nulls);
+extern TupleTableSlot* SPI_modifyslot(TupleTableSlot *slot, int natts, int *attnum,
+				Datum *Values, const char *Nulls);
 extern int	SPI_fnumber(TupleDesc tupdesc, const char *fname);
 extern char *SPI_fname(TupleDesc tupdesc, int fnumber);
-extern char *SPI_getvalue(HeapTuple tuple, TupleDesc tupdesc, int fnumber);
-extern Datum SPI_getbinval(HeapTuple tuple, TupleDesc tupdesc, int fnumber, bool *isnull);
+extern char *SPI_getvalue(TupleTableSlot *slot, int fnumber);
+extern Datum SPI_getbinval(TupleTableSlot *slot, int fnumber, bool *isnull);
 extern char *SPI_gettype(TupleDesc tupdesc, int fnumber);
 extern Oid	SPI_gettypeid(TupleDesc tupdesc, int fnumber);
 extern char *SPI_getrelname(Relation rel);

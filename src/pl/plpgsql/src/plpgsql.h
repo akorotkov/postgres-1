@@ -304,7 +304,7 @@ typedef struct PLpgSQL_rec
 	char	   *refname;
 	int			lineno;
 
-	HeapTuple	tup;
+	TupleTableSlot *slot;
 	TupleDesc	tupdesc;
 	bool		freetup;
 	bool		freetupdesc;

@@ -107,7 +107,7 @@ static char *get_sql_delete(Relation rel, int *pkattnums, int pknumatts, char **
 static char *get_sql_update(Relation rel, int *pkattnums, int pknumatts, char **src_pkattvals, char **tgt_pkattvals);
 static char *quote_ident_cstr(char *rawstr);
 static int	get_attnum_pk_pos(int *pkattnums, int pknumatts, int key);
-static HeapTuple get_tuple_of_interest(Relation rel, int *pkattnums, int pknumatts, char **src_pkattvals);
+static TupleTableSlot* get_tuple_of_interest(Relation rel, int *pkattnums, int pknumatts, char **src_pkattvals);
 static Relation get_rel_from_relname(text *relname_text, LOCKMODE lockmode, AclMode aclmode);
 static char *generate_relation_name(Relation rel);
 static void dblink_connstr_check(const char *connstr);
@@ -2144,7 +2144,7 @@ static char *
 get_sql_insert(Relation rel, int *pkattnums, int pknumatts, char **src_pkattvals, char **tgt_pkattvals)
 {
 	char	   *relname;
-	HeapTuple	tuple;
+	TupleTableSlot *slot;
 	TupleDesc	tupdesc;
 	int			natts;
 	StringInfoData buf;
@@ -2158,14 +2158,14 @@ get_sql_insert(Relation rel, int *pkattnums, int pknumatts, char **src_pkattvals
 	/* get relation name including any needed schema prefix and quoting */
 	relname = generate_relation_name(rel);
 
-	tupdesc = rel->rd_att;
-	natts = tupdesc->natts;
-
-	tuple = get_tuple_of_interest(rel, pkattnums, pknumatts, src_pkattvals);
-	if (!tuple)
+	slot = get_tuple_of_interest(rel, pkattnums, pknumatts, src_pkattvals);
+	if (!slot)
 		ereport(ERROR,
 				(errcode(ERRCODE_CARDINALITY_VIOLATION),
 				 errmsg("source row not found")));
+
+	tupdesc = slot->tts_tupleDescriptor;
+	natts = tupdesc->natts;
 
 	appendStringInfo(&buf, "INSERT INTO %s(", relname);
 
@@ -2204,7 +2204,7 @@ get_sql_insert(Relation rel, int *pkattnums, int pknumatts, char **src_pkattvals
 		if (key >= 0)
 			val = tgt_pkattvals[key] ? pstrdup(tgt_pkattvals[key]) : NULL;
 		else
-			val = SPI_getvalue(tuple, tupdesc, i + 1);
+			val = SPI_getvalue(slot, i + 1);
 
 		if (val != NULL)
 		{
@@ -2261,7 +2261,7 @@ static char *
 get_sql_update(Relation rel, int *pkattnums, int pknumatts, char **src_pkattvals, char **tgt_pkattvals)
 {
 	char	   *relname;
-	HeapTuple	tuple;
+	TupleTableSlot *slot;
 	TupleDesc	tupdesc;
 	int			natts;
 	StringInfoData buf;
@@ -2275,14 +2275,14 @@ get_sql_update(Relation rel, int *pkattnums, int pknumatts, char **src_pkattvals
 	/* get relation name including any needed schema prefix and quoting */
 	relname = generate_relation_name(rel);
 
-	tupdesc = rel->rd_att;
-	natts = tupdesc->natts;
-
-	tuple = get_tuple_of_interest(rel, pkattnums, pknumatts, src_pkattvals);
-	if (!tuple)
+	slot = get_tuple_of_interest(rel, pkattnums, pknumatts, src_pkattvals);
+	if (!slot)
 		ereport(ERROR,
 				(errcode(ERRCODE_CARDINALITY_VIOLATION),
 				 errmsg("source row not found")));
+
+	tupdesc = slot->tts_tupleDescriptor;
+	natts = tupdesc->natts;
 
 	appendStringInfo(&buf, "UPDATE %s SET ", relname);
 
@@ -2308,7 +2308,7 @@ get_sql_update(Relation rel, int *pkattnums, int pknumatts, char **src_pkattvals
 		if (key >= 0)
 			val = tgt_pkattvals[key] ? pstrdup(tgt_pkattvals[key]) : NULL;
 		else
-			val = SPI_getvalue(tuple, tupdesc, i + 1);
+			val = SPI_getvalue(slot, i + 1);
 
 		if (val != NULL)
 		{
@@ -2378,7 +2378,7 @@ get_attnum_pk_pos(int *pkattnums, int pknumatts, int key)
 	return -1;
 }
 
-static HeapTuple
+static TupleTableSlot *
 get_tuple_of_interest(Relation rel, int *pkattnums, int pknumatts, char **src_pkattvals)
 {
 	char	   *relname;
@@ -2386,7 +2386,7 @@ get_tuple_of_interest(Relation rel, int *pkattnums, int pknumatts, char **src_pk
 	int			natts;
 	StringInfoData buf;
 	int			ret;
-	HeapTuple	tuple;
+	TupleTableSlot *slot;
 	int			i;
 
 	/*
@@ -2465,10 +2465,10 @@ get_tuple_of_interest(Relation rel, int *pkattnums, int pknumatts, char **src_pk
 	{
 		SPITupleTable *tuptable = SPI_tuptable;
 
-		tuple = SPI_copytuple(tuptable->vals[0]);
+		slot = tuptable->vals[0];
 		SPI_finish();
 
-		return tuple;
+		return slot;
 	}
 	else
 	{

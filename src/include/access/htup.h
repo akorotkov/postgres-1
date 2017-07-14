@@ -68,6 +68,7 @@ typedef struct HeapTupleData
 } HeapTupleData;
 
 typedef HeapTupleData *HeapTuple;
+typedef void* StorageTuple;
 
 #define HEAPTUPLESIZE	MAXALIGN(sizeof(HeapTupleData))
 

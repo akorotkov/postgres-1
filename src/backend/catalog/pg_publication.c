@@ -314,7 +314,7 @@ GetAllTablesPublicationRelations(void)
 	Relation	classRel;
 	ScanKeyData key[1];
 	HeapScanDesc scan;
-	HeapTuple	tuple;
+	HeapTuple tuple;
 	List	   *result = NIL;
 
 	classRel = heap_open(RelationRelationId, AccessShareLock);

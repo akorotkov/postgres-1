@@ -172,7 +172,7 @@ DropSetting(Oid databaseid, Oid roleid)
 	Relation	relsetting;
 	HeapScanDesc scan;
 	ScanKeyData keys[2];
-	HeapTuple	tup;
+	HeapTuple tup;
 	int			numkeys = 0;
 
 	relsetting = heap_open(DbRoleSettingRelationId, RowExclusiveLock);

@@ -2650,11 +2650,11 @@ IndexCheckExclusion(Relation heapRelation,
 					IndexInfo *indexInfo)
 {
 	HeapScanDesc scan;
-	HeapTuple	heapTuple;
 	Datum		values[INDEX_MAX_KEYS];
 	bool		isnull[INDEX_MAX_KEYS];
 	ExprState  *predicate;
 	TupleTableSlot *slot;
+	HeapTuple heapTuple;
 	EState	   *estate;
 	ExprContext *econtext;
 	Snapshot	snapshot;
@@ -2724,7 +2724,7 @@ IndexCheckExclusion(Relation heapRelation,
 		 */
 		check_exclusion_constraint(heapRelation,
 								   indexRelation, indexInfo,
-								   &(heapTuple->t_self), values, isnull,
+								   &(slot->tts_tid), values, isnull,
 								   estate, true);
 	}
 

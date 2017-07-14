@@ -492,7 +492,7 @@ crosstab(PG_FUNCTION_ARGS)
 		 */
 		for (i = 0; i < num_categories; i++)
 		{
-			HeapTuple	spi_tuple;
+			TupleTableSlot*	spislot;
 			char	   *rowid;
 
 			/* see if we've gone too far already */
@@ -500,10 +500,10 @@ crosstab(PG_FUNCTION_ARGS)
 				break;
 
 			/* get the next sql result tuple */
-			spi_tuple = spi_tuptable->vals[call_cntr];
+			spislot = spi_tuptable->vals[call_cntr];
 
 			/* get the rowid from the current sql result tuple */
-			rowid = SPI_getvalue(spi_tuple, spi_tupdesc, 1);
+			rowid = SPI_getvalue(spislot, 1);
 
 			/*
 			 * If this is the first pass through the values for this rowid,
@@ -538,7 +538,7 @@ crosstab(PG_FUNCTION_ARGS)
 				 * Be careful to assign the value to the array index based on
 				 * which category we are presently processing.
 				 */
-				values[1 + i] = SPI_getvalue(spi_tuple, spi_tupdesc, 3);
+				values[1 + i] = SPI_getvalue(spislot, 3);
 
 				/*
 				 * increment the counter since we consume a row for each
@@ -756,13 +756,13 @@ load_categories_hash(char *cats_sql, MemoryContext per_query_ctx)
 		{
 			crosstab_cat_desc *catdesc;
 			char	   *catname;
-			HeapTuple	spi_tuple;
+			TupleTableSlot*	spislot;
 
 			/* get the next sql result tuple */
-			spi_tuple = spi_tuptable->vals[i];
+			spislot = spi_tuptable->vals[i];
 
 			/* get the category from the current sql result tuple */
-			catname = SPI_getvalue(spi_tuple, spi_tupdesc, 1);
+			catname = SPI_getvalue(spislot, 1);
 
 			SPIcontext = MemoryContextSwitchTo(per_query_ctx);
 
@@ -875,15 +875,15 @@ get_crosstab_tuplestore(char *sql,
 
 		for (i = 0; i < proc; i++)
 		{
-			HeapTuple	spi_tuple;
+			TupleTableSlot*	spislot;
 			crosstab_cat_desc *catdesc;
 			char	   *catname;
 
 			/* get the next sql result tuple */
-			spi_tuple = spi_tuptable->vals[i];
+			spislot = spi_tuptable->vals[i];
 
 			/* get the rowid from the current sql result tuple */
-			rowid = SPI_getvalue(spi_tuple, spi_tupdesc, 1);
+			rowid = SPI_getvalue(spislot, 1);
 
 			/*
 			 * if we're on a new output row, grab the column values up to
@@ -908,14 +908,14 @@ get_crosstab_tuplestore(char *sql,
 
 				values[0] = rowid;
 				for (j = 1; j < ncols - 2; j++)
-					values[j] = SPI_getvalue(spi_tuple, spi_tupdesc, j + 1);
+					values[j] = SPI_getvalue(spislot, j + 1);
 
 				/* we're no longer on the first pass */
 				firstpass = false;
 			}
 
 			/* look up the category and fill in the appropriate column */
-			catname = SPI_getvalue(spi_tuple, spi_tupdesc, ncols - 1);
+			catname = SPI_getvalue(spislot, ncols - 1);
 
 			if (catname != NULL)
 			{
@@ -923,7 +923,7 @@ get_crosstab_tuplestore(char *sql,
 
 				if (catdesc)
 					values[catdesc->attidx + ncols - 2] =
-						SPI_getvalue(spi_tuple, spi_tupdesc, ncols);
+						SPI_getvalue(spislot, ncols);
 			}
 
 			xpfree(lastrowid);
@@ -1310,7 +1310,7 @@ build_tuplestore_recursively(char *key_fld,
 	/* Check for qualifying tuples */
 	if ((ret == SPI_OK_SELECT) && (proc > 0))
 	{
-		HeapTuple	spi_tuple;
+		TupleTableSlot*	spislot;
 		SPITupleTable *tuptable = SPI_tuptable;
 		TupleDesc	spi_tupdesc = tuptable->tupdesc;
 		uint64		i;
@@ -1335,13 +1335,13 @@ build_tuplestore_recursively(char *key_fld,
 			appendStringInfo(&chk_branchstr, "%s%s%s", branch_delim, branch, branch_delim);
 
 			/* get the next sql result tuple */
-			spi_tuple = tuptable->vals[i];
+			spislot = tuptable->vals[i];
 
 			/* get the current key (might be NULL) */
-			current_key = SPI_getvalue(spi_tuple, spi_tupdesc, 1);
+			current_key = SPI_getvalue(spislot, 1);
 
 			/* get the parent key (might be NULL) */
-			current_key_parent = SPI_getvalue(spi_tuple, spi_tupdesc, 2);
+			current_key_parent = SPI_getvalue(spislot, 2);
 
 			/* get the current level */
 			sprintf(current_level, "%d", level);

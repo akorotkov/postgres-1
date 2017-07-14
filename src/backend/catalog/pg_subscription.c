@@ -378,7 +378,7 @@ RemoveSubscriptionRel(Oid subid, Oid relid)
 	Relation	rel;
 	HeapScanDesc scan;
 	ScanKeyData skey[2];
-	HeapTuple	tup;
+	HeapTuple tup;
 	int			nkeys = 0;
 
 	rel = heap_open(SubscriptionRelRelationId, RowExclusiveLock);

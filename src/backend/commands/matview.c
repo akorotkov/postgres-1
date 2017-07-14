@@ -678,7 +678,7 @@ refresh_by_match_merge(Oid matviewOid, Oid tempOid, Oid relowner,
 				 errmsg("new data for materialized view \"%s\" contains duplicate rows without any null columns",
 						RelationGetRelationName(matviewRel)),
 				 errdetail("Row: %s",
-						   SPI_getvalue(SPI_tuptable->vals[0], SPI_tuptable->tupdesc, 1))));
+			SPI_getvalue(SPI_tuptable->vals[0], 1))));
 	}
 
 	SetUserIdAndSecContext(relowner,

@@ -1958,7 +1958,7 @@ plpgsql_build_record(const char *refname, int lineno, bool add2namespace)
 	rec->dtype = PLPGSQL_DTYPE_REC;
 	rec->refname = pstrdup(refname);
 	rec->lineno = lineno;
-	rec->tup = NULL;
+	rec->slot = NULL;
 	rec->tupdesc = NULL;
 	rec->freetup = false;
 	rec->freetupdesc = false;

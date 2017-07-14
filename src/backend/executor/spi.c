@@ -23,6 +23,7 @@
 #include "commands/trigger.h"
 #include "executor/executor.h"
 #include "executor/spi_priv.h"
+#include "executor/tuptable.h"
 #include "miscadmin.h"
 #include "tcop/pquery.h"
 #include "tcop/utility.h"
@@ -763,6 +764,72 @@ SPI_modifytuple(Relation rel, HeapTuple tuple, int natts, int *attnum,
 	return mtuple;
 }
 
+TupleTableSlot *
+SPI_modifyslot(TupleTableSlot *slot, int natts, int *attnum,
+				Datum *Values, const char *Nulls)
+{
+	MemoryContext oldcxt;
+	HeapTuple	mtuple;
+	int			numberOfAttributes;
+	int			i;
+
+	if (slot == NULL || natts < 0 || attnum == NULL || Values == NULL)
+	{
+		SPI_result = SPI_ERROR_ARGUMENT;
+		return NULL;
+	}
+
+	if (_SPI_current == NULL)
+	{
+		SPI_result = SPI_ERROR_UNCONNECTED;
+		return NULL;
+	}
+
+	oldcxt = MemoryContextSwitchTo(_SPI_current->savedcxt);
+
+	SPI_result = 0;
+
+	numberOfAttributes = slot->tts_tupleDescriptor->natts;
+
+	/* replace values and nulls */
+	for (i = 0; i < natts; i++)
+	{
+		if (attnum[i] <= 0 || attnum[i] > numberOfAttributes)
+			break;
+		slot->tts_values[attnum[i] - 1] = Values[i];
+		slot->tts_isnull[attnum[i] - 1] = (Nulls && Nulls[i] == 'n') ? true : false;
+	}
+
+	if (i == natts)				/* no errors in *attnum */
+	{
+		mtuple = heap_form_tuple(slot->tts_tupleDescriptor, slot->tts_values, slot->tts_isnull);
+
+		/*
+		 * copy the identification info of the old tuple: t_ctid, t_self, and
+		 * OID (if any)
+		 */
+		mtuple->t_data->t_ctid = slot->tts_tuple->t_data->t_ctid;
+		mtuple->t_self = slot->tts_tuple->t_self;
+		mtuple->t_tableOid = slot->tts_tuple->t_tableOid;
+		if (slot->tts_tupleDescriptor->tdhasoid)
+			HeapTupleSetOid(mtuple, HeapTupleGetOid(slot->tts_tuple));
+	}
+	else
+	{
+		mtuple = NULL;
+		SPI_result = SPI_ERROR_NOATTRIBUTE;
+	}
+
+	MemoryContextSwitchTo(oldcxt);
+
+	if (slot->tts_shouldFree)
+		heap_freetuple(slot->tts_tuple);
+
+	slot->tts_tuple = mtuple;
+
+	return slot;
+}
+
 int
 SPI_fnumber(TupleDesc tupdesc, const char *fname)
 {
@@ -809,7 +876,7 @@ SPI_fname(TupleDesc tupdesc, int fnumber)
 }
 
 char *
-SPI_getvalue(HeapTuple tuple, TupleDesc tupdesc, int fnumber)
+SPI_getvalue(TupleTableSlot *slot, int fnumber)
 {
 	Datum		val;
 	bool		isnull;
@@ -819,19 +886,19 @@ SPI_getvalue(HeapTuple tuple, TupleDesc tupdesc, int fnumber)
 
 	SPI_result = 0;
 
-	if (fnumber > tupdesc->natts || fnumber == 0 ||
+	if (fnumber > slot->tts_tupleDescriptor->natts || fnumber == 0 ||
 		fnumber <= FirstLowInvalidHeapAttributeNumber)
 	{
 		SPI_result = SPI_ERROR_NOATTRIBUTE;
 		return NULL;
 	}
 
-	val = heap_getattr(tuple, fnumber, tupdesc, &isnull);
+	val = slot_getattr(slot, fnumber, &isnull);
 	if (isnull)
 		return NULL;
 
 	if (fnumber > 0)
-		typoid = TupleDescAttr(tupdesc, fnumber - 1)->atttypid;
+		typoid = TupleDescAttr(slot->tts_tupleDescriptor, fnumber - 1)->atttypid;
 	else
 		typoid = (SystemAttributeDefinition(fnumber, true))->atttypid;
 
@@ -841,11 +908,11 @@ SPI_getvalue(HeapTuple tuple, TupleDesc tupdesc, int fnumber)
 }
 
 Datum
-SPI_getbinval(HeapTuple tuple, TupleDesc tupdesc, int fnumber, bool *isnull)
+SPI_getbinval(TupleTableSlot *slot, int fnumber, bool *isnull)
 {
 	SPI_result = 0;
 
-	if (fnumber > tupdesc->natts || fnumber == 0 ||
+	if (fnumber > slot->tts_tupleDescriptor->natts || fnumber == 0 ||
 		fnumber <= FirstLowInvalidHeapAttributeNumber)
 	{
 		SPI_result = SPI_ERROR_NOATTRIBUTE;
@@ -853,7 +920,7 @@ SPI_getbinval(HeapTuple tuple, TupleDesc tupdesc, int fnumber, bool *isnull)
 		return (Datum) NULL;
 	}
 
-	return heap_getattr(tuple, fnumber, tupdesc, isnull);
+	return slot_getattr(slot, fnumber, isnull);
 }
 
 char *
@@ -1689,7 +1756,7 @@ spi_dest_startup(DestReceiver *self, int operation, TupleDesc typeinfo)
 
 	/* set up initial allocations */
 	tuptable->alloced = tuptable->free = 128;
-	tuptable->vals = (HeapTuple *) palloc(tuptable->alloced * sizeof(HeapTuple));
+	tuptable->vals = (TupleTableSlot **) palloc(tuptable->alloced * sizeof(TupleTableSlot *));
 	tuptable->tupdesc = CreateTupleDescCopy(typeinfo);
 
 	MemoryContextSwitchTo(oldcxt);
@@ -1705,6 +1772,7 @@ spi_printtup(TupleTableSlot *slot, DestReceiver *self)
 {
 	SPITupleTable *tuptable;
 	MemoryContext oldcxt;
+	TupleTableSlot *dstslot;
 
 	if (_SPI_current == NULL)
 		elog(ERROR, "spi_printtup called while not connected to SPI");
@@ -1720,12 +1788,12 @@ spi_printtup(TupleTableSlot *slot, DestReceiver *self)
 		/* Double the size of the pointer array */
 		tuptable->free = tuptable->alloced;
 		tuptable->alloced += tuptable->free;
-		tuptable->vals = (HeapTuple *) repalloc_huge(tuptable->vals,
-													 tuptable->alloced * sizeof(HeapTuple));
+		tuptable->vals = (TupleTableSlot **) repalloc_huge(tuptable->vals,
+									  tuptable->alloced * sizeof(TupleTableSlot *));
 	}
 
-	tuptable->vals[tuptable->alloced - tuptable->free] =
-		ExecCopySlotTuple(slot);
+	dstslot = MakeSingleTupleTableSlot(tuptable->tupdesc);
+	tuptable->vals[tuptable->alloced - tuptable->free] = ExecCopySlot(dstslot, slot);
 	(tuptable->free)--;
 
 	MemoryContextSwitchTo(oldcxt);

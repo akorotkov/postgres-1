@@ -326,13 +326,13 @@ tsquery_rewrite_query(PG_FUNCTION_ARGS)
 
 		for (i = 0; i < SPI_processed && tree; i++)
 		{
-			Datum		qdata = SPI_getbinval(SPI_tuptable->vals[i], SPI_tuptable->tupdesc, 1, &isnull);
+			Datum		qdata = SPI_getbinval(SPI_tuptable->vals[i], 1, &isnull);
 			Datum		sdata;
 
 			if (isnull)
 				continue;
 
-			sdata = SPI_getbinval(SPI_tuptable->vals[i], SPI_tuptable->tupdesc, 2, &isnull);
+			sdata = SPI_getbinval(SPI_tuptable->vals[i], 2, &isnull);
 
 			if (!isnull)
 			{

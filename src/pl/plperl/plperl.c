@@ -1648,7 +1648,7 @@ plperl_trigger_build_args(FunctionCallInfo fcinfo)
 		event = "INSERT";
 		if (TRIGGER_FIRED_FOR_ROW(tdata->tg_event))
 			hv_store_string(hv, "new",
-							plperl_hash_from_tuple(tdata->tg_trigtuple,
+							plperl_hash_from_tuple(tdata->tg_trigslot,
 												   tupdesc));
 	}
 	else if (TRIGGER_FIRED_BY_DELETE(tdata->tg_event))
@@ -1656,7 +1656,7 @@ plperl_trigger_build_args(FunctionCallInfo fcinfo)
 		event = "DELETE";
 		if (TRIGGER_FIRED_FOR_ROW(tdata->tg_event))
 			hv_store_string(hv, "old",
-							plperl_hash_from_tuple(tdata->tg_trigtuple,
+							plperl_hash_from_tuple(tdata->tg_trigslot,
 												   tupdesc));
 	}
 	else if (TRIGGER_FIRED_BY_UPDATE(tdata->tg_event))
@@ -1665,10 +1665,10 @@ plperl_trigger_build_args(FunctionCallInfo fcinfo)
 		if (TRIGGER_FIRED_FOR_ROW(tdata->tg_event))
 		{
 			hv_store_string(hv, "old",
-							plperl_hash_from_tuple(tdata->tg_trigtuple,
+							plperl_hash_from_tuple(tdata->tg_trigslot,
 												   tupdesc));
 			hv_store_string(hv, "new",
-							plperl_hash_from_tuple(tdata->tg_newtuple,
+							plperl_hash_from_tuple(tdata->tg_newslot,
 												   tupdesc));
 		}
 	}
@@ -2557,13 +2557,13 @@ plperl_trigger_handler(PG_FUNCTION_ARGS)
 		TriggerData *trigdata = ((TriggerData *) fcinfo->context);
 
 		if (TRIGGER_FIRED_BY_INSERT(trigdata->tg_event))
-			retval = (Datum) trigdata->tg_trigtuple;
+			retval = (Datum) trigdata->tg_trigslot;
 		else if (TRIGGER_FIRED_BY_UPDATE(trigdata->tg_event))
-			retval = (Datum) trigdata->tg_newtuple;
+			retval = (Datum) trigdata->tg_newslot;
 		else if (TRIGGER_FIRED_BY_DELETE(trigdata->tg_event))
-			retval = (Datum) trigdata->tg_trigtuple;
+			retval = (Datum) trigdata->tg_trigslot;
 		else if (TRIGGER_FIRED_BY_TRUNCATE(trigdata->tg_event))
-			retval = (Datum) trigdata->tg_trigtuple;
+			retval = (Datum) trigdata->tg_trigslot;
 		else
 			retval = (Datum) 0; /* can this happen? */
 	}
@@ -2582,10 +2582,10 @@ plperl_trigger_handler(PG_FUNCTION_ARGS)
 
 			if (TRIGGER_FIRED_BY_INSERT(trigdata->tg_event))
 				trv = plperl_modify_tuple(hvTD, trigdata,
-										  trigdata->tg_trigtuple);
+										  trigdata->tg_trigslot);
 			else if (TRIGGER_FIRED_BY_UPDATE(trigdata->tg_event))
 				trv = plperl_modify_tuple(hvTD, trigdata,
-										  trigdata->tg_newtuple);
+										  trigdata->tg_newslot);
 			else
 			{
 				ereport(WARNING,

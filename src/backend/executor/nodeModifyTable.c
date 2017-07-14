@@ -562,6 +562,7 @@ ExecInsert(ModifyTableState *mtstate,
 								HEAP_INSERT_SPECULATIVE,
 								NULL);
 
+			ItemPointerCopy(&(tuple->t_self), &(slot->tts_tid));
 			/* insert index entries for tuple */
 			recheckIndexes = ExecInsertIndexTuples(slot, &(tuple->t_self),
 												   estate, true, &specConflict,
@@ -607,6 +608,7 @@ ExecInsert(ModifyTableState *mtstate,
 								estate->es_output_cid,
 								0, NULL);
 
+			ItemPointerCopy(&(tuple->t_self), &(slot->tts_tid));
 			/* insert index entries for tuple */
 			if (resultRelInfo->ri_NumIndices > 0)
 				recheckIndexes = ExecInsertIndexTuples(slot, &(tuple->t_self),
@@ -623,7 +625,7 @@ ExecInsert(ModifyTableState *mtstate,
 	}
 
 	/* AFTER ROW INSERT Triggers */
-	ExecARInsertTriggers(estate, resultRelInfo, tuple, recheckIndexes,
+	ExecARInsertTriggers(estate, resultRelInfo, slot, recheckIndexes,
 						 mtstate->mt_transition_capture);
 
 	list_free(recheckIndexes);
@@ -674,7 +676,7 @@ ExecInsert(ModifyTableState *mtstate,
 static TupleTableSlot *
 ExecDelete(ModifyTableState *mtstate,
 		   ItemPointer tupleid,
-		   HeapTuple oldtuple,
+		   TupleTableSlot *oldslot,
 		   TupleTableSlot *planSlot,
 		   EPQState *epqstate,
 		   EState *estate,
@@ -699,7 +701,7 @@ ExecDelete(ModifyTableState *mtstate,
 		bool		dodelete;
 
 		dodelete = ExecBRDeleteTriggers(estate, epqstate, resultRelInfo,
-										tupleid, oldtuple);
+										tupleid, oldslot);
 
 		if (!dodelete)			/* "do nothing" */
 			return NULL;
@@ -711,8 +713,8 @@ ExecDelete(ModifyTableState *mtstate,
 	{
 		bool		dodelete;
 
-		Assert(oldtuple != NULL);
-		dodelete = ExecIRDeleteTriggers(estate, resultRelInfo, oldtuple);
+		Assert(oldslot != NULL);
+		dodelete = ExecIRDeleteTriggers(estate, resultRelInfo, oldslot);
 
 		if (!dodelete)			/* "do nothing" */
 			return NULL;
@@ -849,8 +851,11 @@ ldelete:;
 	if (canSetTag)
 		(estate->es_processed)++;
 
+	if (oldslot != NULL)
+		ItemPointerCopy(tupleid, &(oldslot->tts_tid));
+
 	/* AFTER ROW DELETE Triggers */
-	ExecARDeleteTriggers(estate, resultRelInfo, tupleid, oldtuple,
+	ExecARDeleteTriggers(estate, resultRelInfo, tupleid, oldslot,
 						 mtstate->mt_transition_capture);
 
 	/* Process RETURNING if present */
@@ -873,10 +878,12 @@ ldelete:;
 		else
 		{
 			slot = estate->es_trig_tuple_slot;
-			if (oldtuple != NULL)
+			if (oldslot != NULL)
 			{
-				deltuple = *oldtuple;
-				delbuffer = InvalidBuffer;
+				ExecCopySlot(slot, oldslot);
+
+				if (slot->tts_tupleDescriptor != RelationGetDescr(resultRelationDesc))
+					ExecSetSlotDescriptor(slot, RelationGetDescr(resultRelationDesc));
 			}
 			else
 			{
@@ -884,11 +891,11 @@ ldelete:;
 				if (!heap_fetch(resultRelationDesc, SnapshotAny,
 								&deltuple, &delbuffer, false, NULL))
 					elog(ERROR, "failed to fetch deleted tuple for DELETE RETURNING");
-			}
 
-			if (slot->tts_tupleDescriptor != RelationGetDescr(resultRelationDesc))
-				ExecSetSlotDescriptor(slot, RelationGetDescr(resultRelationDesc));
-			ExecStoreTuple(&deltuple, slot, InvalidBuffer, false);
+				if (slot->tts_tupleDescriptor != RelationGetDescr(resultRelationDesc))
+					ExecSetSlotDescriptor(slot, RelationGetDescr(resultRelationDesc));
+				ExecStoreTuple(&deltuple, slot, InvalidBuffer, false);
+			}
 		}
 
 		rslot = ExecProcessReturning(resultRelInfo, slot, planSlot);
@@ -934,7 +941,7 @@ ldelete:;
 static TupleTableSlot *
 ExecUpdate(ModifyTableState *mtstate,
 		   ItemPointer tupleid,
-		   HeapTuple oldtuple,
+		   TupleTableSlot *oldslot,
 		   TupleTableSlot *slot,
 		   TupleTableSlot *planSlot,
 		   EPQState *epqstate,
@@ -971,7 +978,7 @@ ExecUpdate(ModifyTableState *mtstate,
 		resultRelInfo->ri_TrigDesc->trig_update_before_row)
 	{
 		slot = ExecBRUpdateTriggers(estate, epqstate, resultRelInfo,
-									tupleid, oldtuple, slot);
+									tupleid, oldslot, slot);
 
 		if (slot == NULL)		/* "do nothing" */
 			return NULL;
@@ -985,7 +992,7 @@ ExecUpdate(ModifyTableState *mtstate,
 		resultRelInfo->ri_TrigDesc->trig_update_instead_row)
 	{
 		slot = ExecIRUpdateTriggers(estate, resultRelInfo,
-									oldtuple, slot);
+									oldslot, slot);
 
 		if (slot == NULL)		/* "do nothing" */
 			return NULL;
@@ -1143,6 +1150,7 @@ lreplace:;
 		 * All we do here is insert new index tuples.  -cim 9/27/89
 		 */
 
+		ItemPointerCopy(&(tuple->t_self), &(slot->tts_tid));
 		/*
 		 * insert index entries for tuple
 		 *
@@ -1160,7 +1168,7 @@ lreplace:;
 		(estate->es_processed)++;
 
 	/* AFTER ROW UPDATE Triggers */
-	ExecARUpdateTriggers(estate, resultRelInfo, tupleid, oldtuple, tuple,
+	ExecARUpdateTriggers(estate, resultRelInfo, tupleid, oldslot, slot,
 						 recheckIndexes,
 						 mtstate->operation == CMD_INSERT ?
 						 mtstate->mt_oc_transition_capture :
@@ -1580,6 +1588,7 @@ ExecModifyTable(PlanState *pstate)
 	ItemPointerData tuple_ctid;
 	HeapTupleData oldtupdata;
 	HeapTuple	oldtuple;
+	TupleTableSlot *oldslot = NULL;
 
 	CHECK_FOR_INTERRUPTS();
 
@@ -1697,7 +1706,8 @@ ExecModifyTable(PlanState *pstate)
 		}
 
 		EvalPlanQualSetSlot(&node->mt_epqstate, planSlot);
-		slot = planSlot;
+		slot = MakeSingleTupleTableSlot(planSlot->tts_tupleDescriptor);
+		ExecCopySlot(slot, planSlot);
 
 		tupleid = NULL;
 		oldtuple = NULL;
@@ -1760,6 +1770,10 @@ ExecModifyTable(PlanState *pstate)
 						RelationGetRelid(resultRelInfo->ri_RelationDesc);
 
 					oldtuple = &oldtupdata;
+
+					ItemPointerCopy(tupleid, &(oldslot->tts_tid));
+					oldslot = MakeSingleTupleTableSlot(RelationGetDescr(resultRelInfo->ri_RelationDesc));
+					ExecStoreTuple(oldtuple, oldslot, InvalidBuffer, false);
 				}
 				else
 					Assert(relkind == RELKIND_FOREIGN_TABLE);
@@ -1780,17 +1794,20 @@ ExecModifyTable(PlanState *pstate)
 								  estate, node->canSetTag);
 				break;
 			case CMD_UPDATE:
-				slot = ExecUpdate(node, tupleid, oldtuple, slot, planSlot,
+				slot = ExecUpdate(node, tupleid, oldslot, slot, planSlot,
 								  &node->mt_epqstate, estate, node->canSetTag);
 				break;
 			case CMD_DELETE:
-				slot = ExecDelete(node, tupleid, oldtuple, planSlot,
+				slot = ExecDelete(node, tupleid, oldslot, planSlot,
 								  &node->mt_epqstate, estate, node->canSetTag);
 				break;
 			default:
 				elog(ERROR, "unknown operation");
 				break;
 		}
+
+		if (oldslot)
+			ExecDropSingleTupleTableSlot(oldslot);
 
 		/*
 		 * If we got a RETURNING result, return it to caller.  We'll continue

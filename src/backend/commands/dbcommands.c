@@ -590,6 +590,7 @@ createdb(ParseState *pstate, const CreatedbStmt *stmt)
 		 * each one to the new database.
 		 */
 		rel = heap_open(TableSpaceRelationId, AccessShareLock);
+
 		scan = heap_beginscan_catalog(rel, 0, NULL);
 		while ((tuple = heap_getnext(scan, ForwardScanDirection)) != NULL)
 		{

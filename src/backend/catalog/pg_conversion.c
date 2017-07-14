@@ -149,7 +149,7 @@ void
 RemoveConversionById(Oid conversionOid)
 {
 	Relation	rel;
-	HeapTuple	tuple;
+	HeapTuple tuple;
 	HeapScanDesc scan;
 	ScanKeyData scanKeyData;
 

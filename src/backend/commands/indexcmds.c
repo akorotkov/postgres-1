@@ -1892,7 +1892,7 @@ ReindexMultipleTables(const char *objectName, ReindexObjectType objectKind,
 	Relation	relationRelation;
 	HeapScanDesc scan;
 	ScanKeyData scan_keys[1];
-	HeapTuple	tuple;
+	HeapTuple tuple;
 	MemoryContext private_context;
 	MemoryContext old;
 	List	   *relids = NIL;

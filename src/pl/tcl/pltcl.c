@@ -1157,7 +1157,7 @@ pltcl_trigger_handler(PG_FUNCTION_ARGS, pltcl_call_state *call_state,
 									 Tcl_NewStringObj("ROW", -1));
 
 			/* Build the data list for the trigtuple */
-			tcl_trigtup = pltcl_build_tuple_argument(trigdata->tg_trigtuple,
+			tcl_trigtup = pltcl_build_tuple_argument(trigdata->tg_trigslot,
 													 tupdesc);
 
 			/*
@@ -1172,7 +1172,7 @@ pltcl_trigger_handler(PG_FUNCTION_ARGS, pltcl_call_state *call_state,
 				Tcl_ListObjAppendElement(NULL, tcl_cmd, tcl_trigtup);
 				Tcl_ListObjAppendElement(NULL, tcl_cmd, Tcl_NewObj());
 
-				rettup = trigdata->tg_trigtuple;
+				rettup = trigdata->tg_trigslot;
 			}
 			else if (TRIGGER_FIRED_BY_DELETE(trigdata->tg_event))
 			{
@@ -1182,20 +1182,20 @@ pltcl_trigger_handler(PG_FUNCTION_ARGS, pltcl_call_state *call_state,
 				Tcl_ListObjAppendElement(NULL, tcl_cmd, Tcl_NewObj());
 				Tcl_ListObjAppendElement(NULL, tcl_cmd, tcl_trigtup);
 
-				rettup = trigdata->tg_trigtuple;
+				rettup = trigdata->tg_trigslot;
 			}
 			else if (TRIGGER_FIRED_BY_UPDATE(trigdata->tg_event))
 			{
 				Tcl_ListObjAppendElement(NULL, tcl_cmd,
 										 Tcl_NewStringObj("UPDATE", -1));
 
-				tcl_newtup = pltcl_build_tuple_argument(trigdata->tg_newtuple,
+				tcl_newtup = pltcl_build_tuple_argument(trigdata->tg_newslot,
 														tupdesc);
 
 				Tcl_ListObjAppendElement(NULL, tcl_cmd, tcl_newtup);
 				Tcl_ListObjAppendElement(NULL, tcl_cmd, tcl_trigtup);
 
-				rettup = trigdata->tg_newtuple;
+				rettup = trigdata->tg_newslot;
 			}
 			else
 				elog(ERROR, "unrecognized OP tg_event: %u", trigdata->tg_event);

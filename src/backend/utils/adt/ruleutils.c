@@ -362,9 +362,8 @@ static void push_ancestor_plan(deparse_namespace *dpns, ListCell *ancestor_cell,
 				   deparse_namespace *save_dpns);
 static void pop_ancestor_plan(deparse_namespace *dpns,
 				  deparse_namespace *save_dpns);
-static void make_ruledef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
-			 int prettyFlags);
-static void make_viewdef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
+static void make_ruledef(StringInfo buf, TupleTableSlot *ruleslot, int prettyFlags);
+static void make_viewdef(StringInfo buf, TupleTableSlot *ruleslot,
 			 int prettyFlags, int wrapColumn);
 static void get_query_def(Query *query, StringInfo buf, List *parentnamespace,
 			  TupleDesc resultDesc,
@@ -516,8 +515,7 @@ pg_get_ruledef_worker(Oid ruleoid, int prettyFlags)
 	Datum		args[1];
 	char		nulls[1];
 	int			spirc;
-	HeapTuple	ruletup;
-	TupleDesc	rulettc;
+	TupleTableSlot	*ruleslot;
 	StringInfoData buf;
 
 	/*
@@ -569,9 +567,8 @@ pg_get_ruledef_worker(Oid ruleoid, int prettyFlags)
 		/*
 		 * Get the rule's definition and put it into executor's memory
 		 */
-		ruletup = SPI_tuptable->vals[0];
-		rulettc = SPI_tuptable->tupdesc;
-		make_ruledef(&buf, ruletup, rulettc, prettyFlags);
+		ruleslot = SPI_tuptable->vals[0];
+		make_ruledef(&buf, ruleslot, prettyFlags);
 	}
 
 	/*
@@ -709,8 +706,7 @@ pg_get_viewdef_worker(Oid viewoid, int prettyFlags, int wrapColumn)
 	Datum		args[2];
 	char		nulls[2];
 	int			spirc;
-	HeapTuple	ruletup;
-	TupleDesc	rulettc;
+	TupleTableSlot *ruleslot;
 	StringInfoData buf;
 
 	/*
@@ -765,9 +761,8 @@ pg_get_viewdef_worker(Oid viewoid, int prettyFlags, int wrapColumn)
 		/*
 		 * Get the rule's definition and put it into executor's memory
 		 */
-		ruletup = SPI_tuptable->vals[0];
-		rulettc = SPI_tuptable->tupdesc;
-		make_viewdef(&buf, ruletup, rulettc, prettyFlags, wrapColumn);
+		ruleslot = SPI_tuptable->vals[0];
+		make_viewdef(&buf, ruleslot, prettyFlags, wrapColumn);
 	}
 
 	/*
@@ -4606,8 +4601,7 @@ pop_ancestor_plan(deparse_namespace *dpns, deparse_namespace *save_dpns)
  * ----------
  */
 static void
-make_ruledef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
-			 int prettyFlags)
+make_ruledef(StringInfo buf, TupleTableSlot *ruleslot, int prettyFlags)
 {
 	char	   *rulename;
 	char		ev_type;
@@ -4621,36 +4615,37 @@ make_ruledef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 	int			fno;
 	Datum		dat;
 	bool		isnull;
+	TupleDesc	rulettc = ruleslot->tts_tupleDescriptor;
 
 	/*
 	 * Get the attribute values from the rules tuple
 	 */
 	fno = SPI_fnumber(rulettc, "rulename");
-	dat = SPI_getbinval(ruletup, rulettc, fno, &isnull);
+	dat = SPI_getbinval(ruleslot, fno, &isnull);
 	Assert(!isnull);
 	rulename = NameStr(*(DatumGetName(dat)));
 
 	fno = SPI_fnumber(rulettc, "ev_type");
-	dat = SPI_getbinval(ruletup, rulettc, fno, &isnull);
+	dat = SPI_getbinval(ruleslot, fno, &isnull);
 	Assert(!isnull);
 	ev_type = DatumGetChar(dat);
 
 	fno = SPI_fnumber(rulettc, "ev_class");
-	dat = SPI_getbinval(ruletup, rulettc, fno, &isnull);
+	dat = SPI_getbinval(ruleslot, fno, &isnull);
 	Assert(!isnull);
 	ev_class = DatumGetObjectId(dat);
 
 	fno = SPI_fnumber(rulettc, "is_instead");
-	dat = SPI_getbinval(ruletup, rulettc, fno, &isnull);
+	dat = SPI_getbinval(ruleslot, fno, &isnull);
 	Assert(!isnull);
 	is_instead = DatumGetBool(dat);
 
 	/* these could be nulls */
 	fno = SPI_fnumber(rulettc, "ev_qual");
-	ev_qual = SPI_getvalue(ruletup, rulettc, fno);
+	ev_qual = SPI_getvalue(ruleslot, fno);
 
 	fno = SPI_fnumber(rulettc, "ev_action");
-	ev_action = SPI_getvalue(ruletup, rulettc, fno);
+	ev_action = SPI_getvalue(ruleslot, fno);
 	if (ev_action != NULL)
 		actions = (List *) stringToNode(ev_action);
 
@@ -4795,7 +4790,7 @@ make_ruledef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
  * ----------
  */
 static void
-make_viewdef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
+make_viewdef(StringInfo buf, TupleTableSlot *ruleslot,
 			 int prettyFlags, int wrapColumn)
 {
 	Query	   *query;
@@ -4809,31 +4804,32 @@ make_viewdef(StringInfo buf, HeapTuple ruletup, TupleDesc rulettc,
 	int			fno;
 	Datum		dat;
 	bool		isnull;
+	TupleDesc rulettc = ruleslot->tts_tupleDescriptor;
 
 	/*
 	 * Get the attribute values from the rules tuple
 	 */
 	fno = SPI_fnumber(rulettc, "ev_type");
-	dat = SPI_getbinval(ruletup, rulettc, fno, &isnull);
+	dat = SPI_getbinval(ruleslot, fno, &isnull);
 	Assert(!isnull);
 	ev_type = DatumGetChar(dat);
 
 	fno = SPI_fnumber(rulettc, "ev_class");
-	dat = SPI_getbinval(ruletup, rulettc, fno, &isnull);
+	dat = SPI_getbinval(ruleslot, fno, &isnull);
 	Assert(!isnull);
 	ev_class = DatumGetObjectId(dat);
 
 	fno = SPI_fnumber(rulettc, "is_instead");
-	dat = SPI_getbinval(ruletup, rulettc, fno, &isnull);
+	dat = SPI_getbinval(ruleslot, fno, &isnull);
 	Assert(!isnull);
 	is_instead = DatumGetBool(dat);
 
 	/* these could be nulls */
 	fno = SPI_fnumber(rulettc, "ev_qual");
-	ev_qual = SPI_getvalue(ruletup, rulettc, fno);
+	ev_qual = SPI_getvalue(ruleslot, fno);
 
 	fno = SPI_fnumber(rulettc, "ev_action");
-	ev_action = SPI_getvalue(ruletup, rulettc, fno);
+	ev_action = SPI_getvalue(ruleslot, fno);
 	if (ev_action != NULL)
 		actions = (List *) stringToNode(ev_action);
 

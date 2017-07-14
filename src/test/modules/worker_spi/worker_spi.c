@@ -126,7 +126,6 @@ initialize_worker_spi(worktable *table)
 		elog(FATAL, "not a singleton result");
 
 	ntup = DatumGetInt64(SPI_getbinval(SPI_tuptable->vals[0],
-									   SPI_tuptable->tupdesc,
 									   1, &isnull));
 	if (isnull)
 		elog(FATAL, "null result");
@@ -281,7 +280,6 @@ worker_spi_main(Datum main_arg)
 			int32		val;
 
 			val = DatumGetInt32(SPI_getbinval(SPI_tuptable->vals[0],
-											  SPI_tuptable->tupdesc,
 											  1, &isnull));
 			if (!isnull)
 				elog(LOG, "%s: count in %s.%s is now %d",

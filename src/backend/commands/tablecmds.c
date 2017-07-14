@@ -8216,7 +8216,6 @@ validateCheckConstraint(Relation rel, HeapTuple constrtup)
 	char	   *conbin;
 	Expr	   *origexpr;
 	ExprState  *exprstate;
-	TupleDesc	tupdesc;
 	HeapScanDesc scan;
 	HeapTuple	tuple;
 	ExprContext *econtext;
@@ -8253,8 +8252,7 @@ validateCheckConstraint(Relation rel, HeapTuple constrtup)
 	exprstate = ExecPrepareExpr(origexpr, estate);
 
 	econtext = GetPerTupleExprContext(estate);
-	tupdesc = RelationGetDescr(rel);
-	slot = MakeSingleTupleTableSlot(tupdesc);
+	slot = MakeSingleTupleTableSlot(RelationGetDescr(rel));
 	econtext->ecxt_scantuple = slot;
 
 	snapshot = RegisterSnapshot(GetLatestSnapshot());
@@ -8283,7 +8281,6 @@ validateCheckConstraint(Relation rel, HeapTuple constrtup)
 	MemoryContextSwitchTo(oldcxt);
 	heap_endscan(scan);
 	UnregisterSnapshot(snapshot);
-	ExecDropSingleTupleTableSlot(slot);
 	FreeExecutorState(estate);
 }
 
@@ -8342,6 +8339,9 @@ validateForeignKeyConstraint(char *conname,
 	{
 		FunctionCallInfoData fcinfo;
 		TriggerData trigdata;
+		TupleTableSlot *slot = MakeSingleTupleTableSlot(RelationGetDescr(rel));
+
+		ExecStoreTuple(tuple, slot, InvalidBuffer, false);
 
 		/*
 		 * Make a call to the trigger function
@@ -8356,11 +8356,9 @@ validateForeignKeyConstraint(char *conname,
 		trigdata.type = T_TriggerData;
 		trigdata.tg_event = TRIGGER_EVENT_INSERT | TRIGGER_EVENT_ROW;
 		trigdata.tg_relation = rel;
-		trigdata.tg_trigtuple = tuple;
-		trigdata.tg_newtuple = NULL;
+		trigdata.tg_trigslot = slot;
+		trigdata.tg_newslot = NULL;
 		trigdata.tg_trigger = &trig;
-		trigdata.tg_trigtuplebuf = scan->rs_cbuf;
-		trigdata.tg_newtuplebuf = InvalidBuffer;
 
 		fcinfo.context = (Node *) &trigdata;
 

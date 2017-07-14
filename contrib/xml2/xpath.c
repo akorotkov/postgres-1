@@ -533,7 +533,7 @@ xpath_table(PG_FUNCTION_ARGS)
 
 	/* SPI (input tuple) support */
 	SPITupleTable *tuptable;
-	HeapTuple	spi_tuple;
+	TupleTableSlot*	spislot;
 	TupleDesc	spi_tupdesc;
 
 	/* Output tuple (tuplestore) support */
@@ -702,9 +702,9 @@ xpath_table(PG_FUNCTION_ARGS)
 			xmlXPathCompExprPtr comppath;
 
 			/* Extract the row data as C Strings */
-			spi_tuple = tuptable->vals[i];
-			pkey = SPI_getvalue(spi_tuple, spi_tupdesc, 1);
-			xmldoc = SPI_getvalue(spi_tuple, spi_tupdesc, 2);
+			spislot = tuptable->vals[i];
+			pkey = SPI_getvalue(spislot, 1);
+			xmldoc = SPI_getvalue(spislot, 2);
 
 			/*
 			 * Clear the values array, so that not-well-formed documents

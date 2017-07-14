@@ -822,7 +822,7 @@ objectsInSchemaToOids(GrantObjectType objtype, List *nspnames)
 					int			keycount;
 					Relation	rel;
 					HeapScanDesc scan;
-					HeapTuple	tuple;
+					HeapTuple tup;
 
 					keycount = 0;
 					ScanKeyInit(&key[keycount++],
@@ -849,9 +849,9 @@ objectsInSchemaToOids(GrantObjectType objtype, List *nspnames)
 					rel = heap_open(ProcedureRelationId, AccessShareLock);
 					scan = heap_beginscan_catalog(rel, keycount, key);
 
-					while ((tuple = heap_getnext(scan, ForwardScanDirection)) != NULL)
+					while ((tup = heap_getnext(scan, ForwardScanDirection)) != NULL)
 					{
-						objects = lappend_oid(objects, HeapTupleGetOid(tuple));
+						objects = lappend_oid(objects, HeapTupleGetOid(tup));
 					}
 
 					heap_endscan(scan);
@@ -880,7 +880,7 @@ getRelationsInNamespace(Oid namespaceId, char relkind)
 	ScanKeyData key[2];
 	Relation	rel;
 	HeapScanDesc scan;
-	HeapTuple	tuple;
+	HeapTuple tup;
 
 	ScanKeyInit(&key[0],
 				Anum_pg_class_relnamespace,
@@ -894,9 +894,9 @@ getRelationsInNamespace(Oid namespaceId, char relkind)
 	rel = heap_open(RelationRelationId, AccessShareLock);
 	scan = heap_beginscan_catalog(rel, 2, key);
 
-	while ((tuple = heap_getnext(scan, ForwardScanDirection)) != NULL)
+	while ((tup = heap_getnext(scan, ForwardScanDirection)) != NULL)
 	{
-		relations = lappend_oid(relations, HeapTupleGetOid(tuple));
+		relations = lappend_oid(relations, HeapTupleGetOid(tup));
 	}
 
 	heap_endscan(scan);
