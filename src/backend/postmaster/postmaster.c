@@ -115,6 +115,7 @@
 #include "postmaster/syslogger.h"
 #include "replication/logicallauncher.h"
 #include "replication/walsender.h"
+#include "storage/encryption.h"
 #include "storage/fd.h"
 #include "storage/ipc.h"
 #include "storage/pg_shmem.h"
@@ -934,6 +935,8 @@ PostmasterMain(int argc, char *argv[])
 		ereport(DEBUG3,
 				(errmsg_internal("-----------------------------------------")));
 	}
+
+	setup_encryption();
 
 	/*
 	 * Create lockfile for data directory.

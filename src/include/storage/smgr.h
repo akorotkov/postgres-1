@@ -111,6 +111,10 @@ extern void smgrsync(void);
 extern void smgrpostckpt(void);
 extern void AtEOXact_SMgr(void);
 
+extern BlockNumber ReencryptBlock(char *buffer, int blocks,
+		RelFileNode *srcNode, RelFileNode *dstNode,
+		ForkNumber srcForkNum, ForkNumber dstForkNum,
+		BlockNumber blockNum);
 
 /* internals: move me elsewhere -- ay 7/94 */
 
