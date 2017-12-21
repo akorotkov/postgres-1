@@ -6032,6 +6032,27 @@ PQhost(const PGconn *conn)
 	}
 }
 
+/* Provides connected host info details */
+char *
+PQconnectedhostinfo(const PGconn *conn, pg_connected_host_info type)
+{
+	if (!conn || !conn->connhost)
+		return NULL;
+
+	switch (type)
+	{
+		case PQ_HOST_NAME:
+			return conn->connhost[conn->whichhost].host;
+		case PQ_HOST_ADDRESS:
+			return conn->connhost[conn->whichhost].hostaddr;
+		case PQ_PORT:
+			return conn->connhost[conn->whichhost].port;
+	}
+
+	/* keep compiler silent */
+	return NULL;
+}
+
 char *
 PQport(const PGconn *conn)
 {

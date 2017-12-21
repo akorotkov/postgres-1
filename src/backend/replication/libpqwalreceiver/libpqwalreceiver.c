@@ -52,7 +52,8 @@ static WalReceiverConn *libpqrcv_connect(const char *conninfo,
 				 bool logical, const char *appname,
 				 char **err);
 static void libpqrcv_check_conninfo(const char *conninfo);
-static char *libpqrcv_get_conninfo(WalReceiverConn *conn);
+static char *libpqrcv_get_conninfo(WalReceiverConn *conn, char **host,
+		  char **hostaddr, int *port);
 static char *libpqrcv_identify_system(WalReceiverConn *conn,
 						 TimeLineID *primary_tli,
 						 int *server_version);
@@ -238,7 +239,8 @@ libpqrcv_check_conninfo(const char *conninfo)
  * are obfuscated.
  */
 static char *
-libpqrcv_get_conninfo(WalReceiverConn *conn)
+libpqrcv_get_conninfo(WalReceiverConn *conn, char **host,
+					  char **hostaddr, int *port)
 {
 	PQconninfoOption *conn_opts;
 	PQconninfoOption *conn_opt;
@@ -276,6 +278,18 @@ libpqrcv_get_conninfo(WalReceiverConn *conn)
 	}
 
 	PQconninfoFree(conn_opts);
+
+	retval =  PQconnectedhostinfo(conn->streamConn, PQ_HOST_NAME);
+	if (retval)
+		*host = pstrdup(retval);
+
+	retval =  PQconnectedhostinfo(conn->streamConn, PQ_HOST_ADDRESS);
+	if (retval)
+		*hostaddr = pstrdup(retval);
+
+	retval =  PQconnectedhostinfo(conn->streamConn, PQ_PORT);
+	if (retval)
+		*port = atoi(retval);
 
 	retval = PQExpBufferDataBroken(buf) ? NULL : pstrdup(buf.data);
 	termPQExpBuffer(&buf);

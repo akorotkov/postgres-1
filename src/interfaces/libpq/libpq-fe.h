@@ -134,6 +134,13 @@ typedef enum
 	PQPING_NO_ATTEMPT			/* connection not attempted (bad params) */
 } PGPing;
 
+typedef enum pg_connected_host_info
+{
+	PQ_HOST_NAME,
+	PQ_HOST_ADDRESS,
+	PQ_PORT
+} pg_connected_host_info;
+
 /* PGconn encapsulates a connection to the backend.
  * The contents of this struct are not supposed to be known to applications.
  */
@@ -312,6 +319,7 @@ extern char *PQdb(const PGconn *conn);
 extern char *PQuser(const PGconn *conn);
 extern char *PQpass(const PGconn *conn);
 extern char *PQhost(const PGconn *conn);
+extern char *PQconnectedhostinfo(const PGconn *conn, pg_connected_host_info type);
 extern char *PQport(const PGconn *conn);
 extern char *PQtty(const PGconn *conn);
 extern char *PQoptions(const PGconn *conn);

@@ -199,6 +199,9 @@ WalReceiverMain(void)
 	TimestampTz now;
 	bool		ping_sent;
 	char	   *err;
+	char	   *host = NULL;
+	char	   *hostaddr = NULL;
+	int			port = 0;
 
 	/*
 	 * WalRcv should be set up already (if we are a backend, we inherit this
@@ -310,11 +313,21 @@ WalReceiverMain(void)
 	 * Save user-visible connection string.  This clobbers the original
 	 * conninfo, for security.
 	 */
-	tmp_conninfo = walrcv_get_conninfo(wrconn);
+	tmp_conninfo = walrcv_get_conninfo(wrconn, &host, &hostaddr, &port);
 	SpinLockAcquire(&walrcv->mutex);
 	memset(walrcv->conninfo, 0, MAXCONNINFO);
 	if (tmp_conninfo)
 		strlcpy((char *) walrcv->conninfo, tmp_conninfo, MAXCONNINFO);
+
+	memset(walrcv->host, 0, NAMEDATALEN);
+	if (host)
+		strlcpy((char *) walrcv->host, host, NAMEDATALEN);
+
+	memset(walrcv->hostaddr, 0, NAMEDATALEN);
+	if (hostaddr)
+		strlcpy((char *) walrcv->hostaddr, hostaddr, NAMEDATALEN);
+
+	walrcv->port = port;
 	walrcv->ready_to_display = true;
 	SpinLockRelease(&walrcv->mutex);
 
@@ -1402,6 +1415,9 @@ pg_stat_get_wal_receiver(PG_FUNCTION_ARGS)
 	TimestampTz last_receipt_time;
 	XLogRecPtr	latest_end_lsn;
 	TimestampTz latest_end_time;
+	char		host[NAMEDATALEN];
+	char		hostaddr[NAMEDATALEN];
+	int			port = 0;
 	char		slotname[NAMEDATALEN];
 	char		conninfo[MAXCONNINFO];
 
@@ -1419,6 +1435,9 @@ pg_stat_get_wal_receiver(PG_FUNCTION_ARGS)
 	latest_end_lsn = WalRcv->latestWalEnd;
 	latest_end_time = WalRcv->latestWalEndTime;
 	strlcpy(slotname, (char *) WalRcv->slotname, sizeof(slotname));
+	strlcpy(host, (char *) WalRcv->host, sizeof(host));
+	strlcpy(hostaddr, (char *) WalRcv->hostaddr, sizeof(hostaddr));
+	port = WalRcv->port;
 	strlcpy(conninfo, (char *) WalRcv->conninfo, sizeof(conninfo));
 	SpinLockRelease(&WalRcv->mutex);
 
@@ -1481,10 +1500,22 @@ pg_stat_get_wal_receiver(PG_FUNCTION_ARGS)
 			nulls[10] = true;
 		else
 			values[10] = CStringGetTextDatum(slotname);
-		if (*conninfo == '\0')
+		if (*host == '\0')
 			nulls[11] = true;
 		else
-			values[11] = CStringGetTextDatum(conninfo);
+			values[11] = CStringGetTextDatum(host);
+		if (*hostaddr == '\0')
+			nulls[12] = true;
+		else
+			values[12] = CStringGetTextDatum(hostaddr);
+		if (port == 0)
+			nulls[13] = true;
+		else
+			values[13] = Int32GetDatum(port);
+		if (*conninfo == '\0')
+			nulls[14] = true;
+		else
+			values[14] = CStringGetTextDatum(conninfo);
 	}
 
 	/* Returns the record as Datum */
